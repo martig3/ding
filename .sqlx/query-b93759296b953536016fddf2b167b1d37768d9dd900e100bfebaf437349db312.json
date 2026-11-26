@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "INSERT INTO characters (first_name, last_name, name, level, item_level, updated_at)\n             VALUES (?, ?, ?, ?, ?, ?)\n             ON CONFLICT (first_name, last_name) DO UPDATE SET\n                 name = excluded.name,\n                 level = excluded.level,\n                 item_level = excluded.item_level,\n                 updated_at = excluded.updated_at",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 6
+    },
+    "nullable": []
+  },
+  "hash": "b93759296b953536016fddf2b167b1d37768d9dd900e100bfebaf437349db312"
+}
