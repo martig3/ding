@@ -5,7 +5,21 @@ use ding::infrastructure::sqlite::connect;
 use poise::serenity_prelude as serenity;
 
 #[tokio::main]
-async fn main() -> Result<(), Error> {
+async fn main() {
+    tracing_subscriber::fmt()
+        .with_env_filter(
+            tracing_subscriber::EnvFilter::try_from_default_env()
+                .unwrap_or_else(|_| "info".into()),
+        )
+        .init();
+
+    if let Err(e) = run().await {
+        tracing::error!(error = %e, "bot exited with error");
+        std::process::exit(1);
+    }
+}
+
+async fn run() -> Result<(), Error> {
     let _ = dotenvy::dotenv();
     let token = std::env::var("DISCORD_TOKEN").map_err(|_| Error::MissingToken)?;
 
@@ -16,11 +30,29 @@ async fn main() -> Result<(), Error> {
     let framework = poise::Framework::builder()
         .options(poise::FrameworkOptions {
             commands: vec![character(), characters()],
+            on_error: |err| {
+                Box::pin(async move {
+                    match &err {
+                        poise::FrameworkError::Command { error, ctx, .. } => {
+                            tracing::error!(
+                                command = %ctx.command().qualified_name,
+                                error = %error,
+                                "command failed"
+                            );
+                        }
+                        other => tracing::error!(error = %other, "framework error"),
+                    }
+                    if let Err(e) = poise::builtins::on_error(err).await {
+                        tracing::error!(error = %e, "failed to report error to user");
+                    }
+                })
+            },
             ..Default::default()
         })
-        .setup(|ctx, _ready, framework| {
+        .setup(|ctx, ready, framework| {
             Box::pin(async move {
                 poise::builtins::register_globally(ctx, &framework.options().commands).await?;
+                tracing::info!(user = %ready.user.name, guilds = ready.guilds.len(), "bot started");
                 Ok(Data { characters: character_repo, discord: discord_repo })
             })
         })

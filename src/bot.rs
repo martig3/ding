@@ -77,6 +77,7 @@ async fn track(
     let data = ctx.data();
     let mut character = Character::new(first, last);
     if let Err(e) = character.update_character(&data.characters).await {
+        tracing::error!(error = %e, character = %format!("{first} {last}"), "failed to fetch character");
         ctx.say(format!("Couldn't fetch **{first} {last}**: {e}")).await?;
         return Ok(());
     }
