@@ -2,6 +2,7 @@ use ding::bot::{Data, Error, character, characters};
 use ding::infrastructure::character_sqlite::SqliteCharacterRepository;
 use ding::infrastructure::discord_character_sqlite::SqliteDiscordCharacterRepository;
 use ding::infrastructure::sqlite::connect;
+use ding::jobs;
 use poise::serenity_prelude as serenity;
 
 #[tokio::main]
@@ -25,7 +26,10 @@ async fn run() -> Result<(), Error> {
 
     let pool = connect().await?;
     let character_repo = SqliteCharacterRepository::new(pool.clone());
-    let discord_repo = SqliteDiscordCharacterRepository::new(pool);
+    let discord_repo = SqliteDiscordCharacterRepository::new(pool.clone());
+    // Separate repos for the background updater (they only wrap the shared pool).
+    let job_characters = SqliteCharacterRepository::new(pool.clone());
+    let job_discord = SqliteDiscordCharacterRepository::new(pool);
 
     let framework = poise::Framework::builder()
         .options(poise::FrameworkOptions {
@@ -53,6 +57,7 @@ async fn run() -> Result<(), Error> {
             Box::pin(async move {
                 poise::builtins::register_globally(ctx, &framework.options().commands).await?;
                 tracing::info!(user = %ready.user.name, guilds = ready.guilds.len(), "bot started");
+                tokio::spawn(jobs::run_update_loop(job_characters, job_discord, ctx.http.clone()));
                 Ok(Data { characters: character_repo, discord: discord_repo })
             })
         })

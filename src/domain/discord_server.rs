@@ -6,14 +6,22 @@ pub const PAGE_SIZE: i64 = 10;
 
 /// Persistence port for per-server character tracking; implemented in the infrastructure layer.
 pub trait DiscordServerRepository {
-    /// Links an already-saved character to a server.
+    /// Links an already-saved character to a server, with `channel_id` as the channel for
+    /// notifications. Re-tracking an already tracked character moves its notification channel.
     /// Returns `true` if newly tracked, `false` if the server already tracked it.
     fn track(
         &self,
         guild_id: u64,
         character: &Character,
         user_id: u64,
+        channel_id: u64,
     ) -> impl Future<Output = Result<bool>> + Send;
+
+    /// Servers tracking `character` that have a notification channel set.
+    fn list_subscribers(
+        &self,
+        character: &Character,
+    ) -> impl Future<Output = Result<Vec<Subscriber>>> + Send;
 
     /// Stops a server tracking a character (names match case-insensitively). If no server
     /// tracks the character afterwards, the character itself is deleted.
@@ -35,6 +43,13 @@ pub trait DiscordServerRepository {
         offset: i64,
         limit: i64,
     ) -> impl Future<Output = Result<Vec<Character>>> + Send;
+}
+
+/// A server and the channel it wants notifications about a character posted in.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Subscriber {
+    pub guild_id: u64,
+    pub channel_id: u64,
 }
 
 /// One page of a server's alphabetical character list.
@@ -70,15 +85,17 @@ impl DiscordServer {
         Self { guild_id }
     }
 
-    /// Tracks `character` on this server on behalf of Discord user `user_id`.
+    /// Tracks `character` on this server on behalf of Discord user `user_id`, posting
+    /// notifications in `channel_id`.
     /// Returns `true` if newly tracked, `false` if it was already tracked.
     pub async fn track_character(
         &self,
         repo: &impl DiscordServerRepository,
         character: &Character,
         user_id: u64,
+        channel_id: u64,
     ) -> Result<bool> {
-        repo.track(self.guild_id, character, user_id).await
+        repo.track(self.guild_id, character, user_id, channel_id).await
     }
 
     /// Stops tracking the named character on this server, removing the character entirely

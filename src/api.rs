@@ -35,7 +35,9 @@ pub async fn fetch_profile(
     last: &str,
 ) -> Result<Profile> {
     let (status, html) = fetch_character_html(first, last).await?;
-    if status == 404 {
+    // The armory answers 404 or 500 for unknown characters, so treat any error status as not found.
+    if status >= 400 {
+        tracing::warn!(status, character = %format!("{first} {last}"), "armory returned an error status");
         return Err(Error::CharacterNotFound { first: first.into(), last: last.into() });
     }
     Ok(parse_character(&html)?)

@@ -4,7 +4,7 @@ use sqlx::SqlitePool;
 
 use crate::Result;
 use crate::domain::character::Character;
-use crate::domain::discord_server::DiscordServerRepository;
+use crate::domain::discord_server::{DiscordServerRepository, Subscriber};
 use crate::infrastructure::character_sqlite::CharacterRecord;
 
 /// Which characters each Discord server tracks (`server_characters`).
@@ -19,21 +19,68 @@ impl SqliteDiscordCharacterRepository {
 }
 
 impl DiscordServerRepository for SqliteDiscordCharacterRepository {
-    async fn track(&self, guild_id: u64, character: &Character, user_id: u64) -> Result<bool> {
+    async fn track(
+        &self,
+        guild_id: u64,
+        character: &Character,
+        user_id: u64,
+        channel_id: u64,
+    ) -> Result<bool> {
         let now = SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs() as i64;
-        let result = sqlx::query(
-            "INSERT INTO server_characters (guild_id, character_id, added_by, added_at)
-             SELECT ?, id, ?, ? FROM characters WHERE first_name = ? AND last_name = ?
+        let mut tx = self.pool.begin().await?;
+        let inserted = sqlx::query(
+            "INSERT INTO server_characters (guild_id, character_id, added_by, added_at, channel_id)
+             SELECT ?, id, ?, ?, ? FROM characters WHERE first_name = ? AND last_name = ?
              ON CONFLICT (guild_id, character_id) DO NOTHING",
         )
         .bind(guild_id.to_string())
         .bind(user_id.to_string())
         .bind(now)
+        .bind(channel_id.to_string())
         .bind(&character.first_name)
         .bind(&character.last_name)
-        .execute(&self.pool)
+        .execute(&mut *tx)
+        .await?
+        .rows_affected()
+            > 0;
+
+        if !inserted {
+            // Already tracked: just point notifications at the channel used now.
+            sqlx::query(
+                "UPDATE server_characters SET channel_id = ?
+                 WHERE guild_id = ?
+                   AND character_id IN (
+                       SELECT id FROM characters WHERE first_name = ? AND last_name = ?)",
+            )
+            .bind(channel_id.to_string())
+            .bind(guild_id.to_string())
+            .bind(&character.first_name)
+            .bind(&character.last_name)
+            .execute(&mut *tx)
+            .await?;
+        }
+        tx.commit().await?;
+        Ok(inserted)
+    }
+
+    async fn list_subscribers(&self, character: &Character) -> Result<Vec<Subscriber>> {
+        let rows: Vec<(String, String)> = sqlx::query_as(
+            "SELECT sc.guild_id, sc.channel_id
+             FROM server_characters sc
+             JOIN characters c ON c.id = sc.character_id
+             WHERE c.first_name = ? AND c.last_name = ? AND sc.channel_id IS NOT NULL",
+        )
+        .bind(&character.first_name)
+        .bind(&character.last_name)
+        .fetch_all(&self.pool)
         .await?;
-        Ok(result.rows_affected() > 0)
+        // Ids are stored as text; skip any row that somehow isn't a valid snowflake.
+        Ok(rows
+            .into_iter()
+            .filter_map(|(g, c)| {
+                Some(Subscriber { guild_id: g.parse().ok()?, channel_id: c.parse().ok()? })
+            })
+            .collect())
     }
 
     async fn untrack(&self, guild_id: u64, first_name: &str, last_name: &str) -> Result<bool> {
@@ -121,12 +168,12 @@ mod tests {
 
         for (f, l) in [("Zed", "Beta"), ("Amy", "alpha"), ("Bob", "Gamma")] {
             let c = saved(&characters, f, l).await;
-            assert!(one.track_character(&repo, &c, 9).await.unwrap());
+            assert!(one.track_character(&repo, &c, 9, 100).await.unwrap());
         }
         let zed = saved(&characters, "Zed", "Beta").await;
-        assert!(!one.track_character(&repo, &zed, 9).await.unwrap());
+        assert!(!one.track_character(&repo, &zed, 9, 100).await.unwrap());
         let other = saved(&characters, "Other", "Zulu").await;
-        assert!(two.track_character(&repo, &other, 9).await.unwrap());
+        assert!(two.track_character(&repo, &other, 9, 100).await.unwrap());
 
         assert_eq!(repo.count_tracked(1).await.unwrap(), 3);
         assert_eq!(repo.count_tracked(2).await.unwrap(), 1);
@@ -146,6 +193,39 @@ mod tests {
         assert_eq!((empty.pages, empty.total), (1, 0));
     }
 
+    #[tokio::test]
+    async fn subscribers_use_latest_channel_and_skip_unset() {
+        let pool = memory_pool().await;
+        let characters = SqliteCharacterRepository::new(pool.clone());
+        let repo = SqliteDiscordCharacterRepository::new(pool.clone());
+        let (one, two, three) = (DiscordServer::new(1), DiscordServer::new(2), DiscordServer::new(3));
+
+        let c = saved(&characters, "Amy", "Alpha").await;
+        assert!(one.track_character(&repo, &c, 9, 100).await.unwrap());
+        assert!(two.track_character(&repo, &c, 9, 200).await.unwrap());
+        assert!(three.track_character(&repo, &c, 9, 300).await.unwrap());
+        // Re-tracking from another channel moves guild 1's notifications.
+        assert!(!one.track_character(&repo, &c, 9, 101).await.unwrap());
+        // A row from before channels existed has no channel and is skipped.
+        sqlx::query("UPDATE server_characters SET channel_id = NULL WHERE guild_id = '3'")
+            .execute(&pool)
+            .await
+            .unwrap();
+
+        let mut subs = repo.list_subscribers(&c).await.unwrap();
+        subs.sort_by_key(|s| s.guild_id);
+        assert_eq!(
+            subs,
+            [
+                Subscriber { guild_id: 1, channel_id: 101 },
+                Subscriber { guild_id: 2, channel_id: 200 },
+            ]
+        );
+
+        let other = saved(&characters, "Other", "Zulu").await;
+        assert!(repo.list_subscribers(&other).await.unwrap().is_empty());
+    }
+
     async fn character_rows(pool: &SqlitePool) -> i64 {
         let (n,): (i64,) =
             sqlx::query_as("SELECT COUNT(*) FROM characters").fetch_one(pool).await.unwrap();
@@ -160,8 +240,8 @@ mod tests {
         let (one, two) = (DiscordServer::new(1), DiscordServer::new(2));
 
         let shared = saved(&characters, "Amy", "Alpha").await;
-        assert!(one.track_character(&repo, &shared, 9).await.unwrap());
-        assert!(two.track_character(&repo, &shared, 9).await.unwrap());
+        assert!(one.track_character(&repo, &shared, 9, 100).await.unwrap());
+        assert!(two.track_character(&repo, &shared, 9, 100).await.unwrap());
 
         // Guild 1 stops tracking: guild 2 still does, so the character stays.
         assert!(one.untrack_character(&repo, "amy", "ALPHA").await.unwrap());

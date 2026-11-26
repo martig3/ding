@@ -5,7 +5,7 @@ pub type Result<T, E = Error> = std::result::Result<T, E>;
 /// Errors from fetching, parsing and persisting characters.
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
-    #[error("character \"{first} {last}\" not found")]
+    #[error("{first} {last} not found")]
     CharacterNotFound { first: String, last: String },
     #[error("failed to fetch character: {0}")]
     Fetch(#[from] reqwest::Error),

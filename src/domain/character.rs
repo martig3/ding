@@ -35,6 +35,11 @@ impl Character {
         }
     }
 
+    /// Whether the character level differs from `before` (item level is ignored).
+    pub fn level_changed_since(&self, before: &Character) -> bool {
+        self.level != before.level
+    }
+
     /// Fetches the armory page, refreshes `name`, `level`, `item_level` and `updated_at`,
     /// and persists the result through `repo`.
     /// On error (fetch or save) the struct is left unchanged.

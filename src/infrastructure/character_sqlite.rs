@@ -48,6 +48,17 @@ impl SqliteCharacterRepository {
     pub fn new(pool: SqlitePool) -> Self {
         Self { pool }
     }
+
+    /// Every stored character. Not part of the domain port; used by the background updater.
+    pub async fn list_all(&self) -> Result<Vec<Character>> {
+        let rows: Vec<CharacterRecord> = sqlx::query_as(
+            "SELECT first_name, last_name, name, level, item_level, updated_at
+             FROM characters ORDER BY id",
+        )
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(rows.into_iter().map(Character::from).collect())
+    }
 }
 
 impl CharacterRepository for SqliteCharacterRepository {
@@ -100,5 +111,20 @@ mod tests {
             .unwrap();
         assert_eq!(rows.len(), 1);
         assert_eq!((rows[0].level, rows[0].updated_at), (11, 200));
+    }
+
+    #[tokio::test]
+    async fn list_all_returns_every_character() {
+        let repo = SqliteCharacterRepository::new(memory_pool().await);
+        assert!(repo.list_all().await.unwrap().is_empty());
+
+        for (f, l, level) in [("Foo", "Bar", 10), ("Baz", "Qux", 20)] {
+            let mut c = Character::new(f, l);
+            c.level = level;
+            repo.save(&c).await.unwrap();
+        }
+        let all = repo.list_all().await.unwrap();
+        let got: Vec<_> = all.iter().map(|c| (c.first_name.as_str(), c.level)).collect();
+        assert_eq!(got, [("Foo", 10), ("Baz", 20)]);
     }
 }

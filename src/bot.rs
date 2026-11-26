@@ -78,20 +78,30 @@ async fn track(
     let mut character = Character::new(first, last);
     if let Err(e) = character.update_character(&data.characters).await {
         tracing::error!(error = %e, character = %format!("{first} {last}"), "failed to fetch character");
-        ctx.say(format!("Couldn't fetch **{first} {last}**: {e}")).await?;
+        // The technical detail is in the log above; users just see that it wasn't found.
+        ctx.say(format!("**{first} {last}** couldn't be found.")).await?;
         return Ok(());
     }
 
     let added = DiscordServer::new(guild_id.get())
-        .track_character(&data.discord, &character, ctx.author().id.get())
+        .track_character(
+            &data.discord,
+            &character,
+            ctx.author().id.get(),
+            ctx.channel_id().get(),
+        )
         .await?;
+    let channel = ctx.channel_id();
     let msg = if added {
         format!(
-            "Now tracking **{}** (level {}, ilvl {}).",
+            "Now tracking **{}** (level {}, ilvl {}). Level-up updates will be posted in <#{channel}>.",
             character.name, character.level, character.item_level
         )
     } else {
-        format!("**{}** is already tracked on this server (info refreshed).", character.name)
+        format!(
+            "**{}** is already tracked on this server (info refreshed). Level-up updates will now be posted in <#{channel}>.",
+            character.name
+        )
     };
     ctx.say(msg).await?;
     Ok(())
