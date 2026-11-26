@@ -6,12 +6,20 @@ async fn fetch_character_html(first: &str, last: &str) -> Result<(u16, String), 
         first.to_lowercase(),
         last.to_lowercase()
     );
-    let resp = reqwest::Client::builder().user_agent(UA).build()?.get(&url).send().await?;
+    let resp = reqwest::Client::builder()
+        .user_agent(UA)
+        .timeout(std::time::Duration::from_secs(15))
+        .build()?
+        .get(&url)
+        .send()
+        .await?;
     let status = resp.status().as_u16();
     Ok((status, resp.text().await?))
 }
 
 use serde::Deserialize;
+
+use crate::{Error, Result};
 
 /// Values parsed out of the armory page.
 #[derive(Debug)]
@@ -22,25 +30,23 @@ pub struct Profile {
 }
 
 /// Fetches the armory page for a character and parses it.
-pub async fn fetch_profile(first: &str, last: &str) -> Result<Profile, Box<dyn std::error::Error>> {
-    let (_status, html) = fetch_character_html(first, last).await?;
+pub async fn fetch_profile(
+    first: &str,
+    last: &str,
+) -> Result<Profile> {
+    let (status, html) = fetch_character_html(first, last).await?;
+    if status == 404 {
+        return Err(Error::CharacterNotFound { first: first.into(), last: last.into() });
+    }
     Ok(parse_character(&html)?)
 }
 
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
 pub enum ParseError {
     /// Both sources failed; carries the reason for each.
+    #[error("could not parse character (embedded JSON: {json}; meta fallback: {meta})")]
     NoSource { json: String, meta: String },
 }
-
-impl std::fmt::Display for ParseError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let ParseError::NoSource { json, meta } = self;
-        write!(f, "could not parse character (embedded JSON: {json}; meta fallback: {meta})")
-    }
-}
-
-impl std::error::Error for ParseError {}
 
 /// Primary source: the `characterProfileInitialState` JSON embedded in the page.
 /// Only the fields we need are declared, so extra fields added by Blizzard are ignored.

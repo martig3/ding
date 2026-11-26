@@ -1,12 +1,14 @@
-use std::error::Error;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use crate::api;
+use crate::{Result, api};
 
 /// Persistence port for characters; implemented in the infrastructure layer.
 pub trait CharacterRepository {
     /// Inserts the character, or updates it if one with the same first/last name exists.
-    async fn save(&self, character: &Character) -> Result<(), Box<dyn Error>>;
+    fn save(
+        &self,
+        character: &Character,
+    ) -> impl Future<Output = Result<()>> + Send;
 }
 
 /// Holds a character's data. Create with `new`, then call `update_character` to fill it in.
@@ -39,7 +41,7 @@ impl Character {
     pub async fn update_character(
         &mut self,
         repo: &impl CharacterRepository,
-    ) -> Result<(), Box<dyn Error>> {
+    ) -> Result<()> {
         let profile = api::fetch_profile(&self.first_name, &self.last_name).await?;
 
         let mut updated = self.clone();
