@@ -1,5 +1,3 @@
 /target
-ding.db
-ding.db-shm
-ding.db-wal
+*.db*
 .env
