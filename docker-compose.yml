@@ -1,0 +1,15 @@
+services:
+  ding:
+    build: .
+    # Or use the published image instead of building locally:
+    # image: ghcr.io/<owner>/ding:latest
+    restart: unless-stopped
+    environment:
+      DISCORD_TOKEN: ${DISCORD_TOKEN:?set DISCORD_TOKEN in .env or your shell}
+      DATABASE_URL: sqlite:/data/ding.db
+      # RUST_LOG: info
+    volumes:
+      - ding-data:/data
+
+volumes:
+  ding-data:
