@@ -21,7 +21,8 @@ impl From<&Character> for CharacterRecord {
             last_name: c.last_name.clone(),
             name: c.name.clone(),
             level: c.level.into(),
-            item_level: c.item_level.into(),
+            // The column is NOT NULL; 0 stands for "unknown".
+            item_level: c.item_level.map_or(0, i64::from),
             updated_at: c.updated_at,
         }
     }
@@ -34,7 +35,7 @@ impl From<CharacterRecord> for Character {
             last_name: r.last_name,
             name: r.name,
             level: r.level.try_into().unwrap_or_default(),
-            item_level: r.item_level.try_into().unwrap_or_default(),
+            item_level: u32::try_from(r.item_level).ok().filter(|&n| n > 0),
             updated_at: r.updated_at,
         }
     }
@@ -97,7 +98,7 @@ mod tests {
         let mut c = Character::new("Foo", "Bar");
         c.name = "Foo Bar".into();
         c.level = 10;
-        c.item_level = 50;
+        c.item_level = Some(50);
         c.updated_at = 100;
         repo.save(&c).await.unwrap();
 

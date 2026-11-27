@@ -26,7 +26,8 @@ use crate::{Error, Result};
 pub struct Profile {
     pub name: String,
     pub level: u32,
-    pub item_level: u32,
+    /// `None` when the armory has no item level for the character.
+    pub item_level: Option<u32>,
 }
 
 /// Fetches the armory page for a character and parses it.
@@ -63,7 +64,7 @@ struct JsonCharacter {
     surname: Option<String>,
     level: u32,
     #[serde(rename = "averageItemLevel")]
-    average_item_level: u32,
+    average_item_level: Option<u32>,
 }
 
 /// Text between `start` and `end` markers.
@@ -97,7 +98,8 @@ fn parse_meta(html: &str) -> Option<Profile> {
     let desc = between(html, r#"<meta name="description" content=""#, r#"""#)?;
     let tail = desc.split(" - ").last()?; // "26 Gnome character.class, 17 ilvl"
     let level = tail.split_whitespace().next()?.parse().ok()?;
-    let item_level = tail.rsplit(", ").next()?.strip_suffix(" ilvl")?.parse().ok()?;
+    // The armory prints `undefined ilvl` when it has no item level.
+    let item_level = tail.rsplit(", ").next()?.strip_suffix(" ilvl")?.parse().ok();
     Some(Profile { name, level, item_level })
 }
 
@@ -107,7 +109,7 @@ fn parse_character(html: &str) -> Result<Profile, ParseError> {
         Ok(c) => Ok(c),
         Err(json) => parse_meta(html).ok_or(ParseError::NoSource {
             json,
-            meta: "title/description not found or unexpected format".into(),
+            meta: "title/description not found, or level not parseable".into(),
         }),
     }
 }
@@ -125,7 +127,7 @@ mod tests {
 </script>"#
         );
         let c = parse_character(&html).unwrap();
-        assert_eq!((c.name.as_str(), c.level, c.item_level), ("Foo Bar", 30, 99));
+        assert_eq!((c.name.as_str(), c.level, c.item_level), ("Foo Bar", 30, Some(99)));
     }
 
     #[test]
@@ -135,8 +137,20 @@ mod tests {
             format!(r#"{META}var characterProfileInitialState = {{"character":{{"renamed":1}}}};"#),
         ] {
             let c = parse_character(&html).unwrap();
-            assert_eq!((c.name.as_str(), c.level, c.item_level), ("Foo Bar", 26, 17));
+            assert_eq!((c.name.as_str(), c.level, c.item_level), ("Foo Bar", 26, Some(17)));
         }
+    }
+
+    #[test]
+    fn item_level_optional() {
+        let meta = r#"<title>Foo Bar - Character</title><meta name="description" content="Foo ❮G❯ - 27 Gnome character.class, undefined ilvl"/>"#;
+        let c = parse_character(meta).unwrap();
+        assert_eq!((c.level, c.item_level), (27, None));
+        let json = format!(
+            r#"var characterProfileInitialState = {{"character":{{"name":"Foo","surname":"Bar","level":27}}}};"#
+        );
+        let c = parse_character(&json).unwrap();
+        assert_eq!((c.name.as_str(), c.level, c.item_level), ("Foo Bar", 27, None));
     }
 
     #[test]

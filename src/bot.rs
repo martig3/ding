@@ -95,7 +95,9 @@ async fn track(
     let msg = if added {
         format!(
             "Now tracking **{}** (level {}, ilvl {}). Level-up updates will be posted in <#{channel}>.",
-            character.name, character.level, character.item_level
+            character.name,
+            character.level,
+            fmt_ilvl(character.item_level)
         )
     } else {
         format!(
@@ -107,11 +109,15 @@ async fn track(
     Ok(())
 }
 
+fn fmt_ilvl(item_level: Option<u32>) -> String {
+    item_level.map_or_else(|| "n/a".into(), |n| n.to_string())
+}
+
 fn page_embed(list: &CharacterPage) -> serenity::CreateEmbed {
     let body = list
         .characters
         .iter()
-        .map(|c| format!("**{}** — level {}, ilvl {}", c.name, c.level, c.item_level))
+        .map(|c| format!("**{}** — level {}, ilvl {}", c.name, c.level, fmt_ilvl(c.item_level)))
         .collect::<Vec<_>>()
         .join("\n");
     serenity::CreateEmbed::new()

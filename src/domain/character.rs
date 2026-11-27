@@ -18,7 +18,8 @@ pub struct Character {
     pub last_name: String,
     pub name: String,
     pub level: u32,
-    pub item_level: u32,
+    /// `None` when the armory has no item level for the character.
+    pub item_level: Option<u32>,
     /// Unix timestamp (seconds) of the last successful update; 0 if never updated.
     pub updated_at: i64,
 }
@@ -30,7 +31,7 @@ impl Character {
             last_name: last_name.to_string(),
             name: String::new(),
             level: 0,
-            item_level: 0,
+            item_level: None,
             updated_at: 0,
         }
     }
