@@ -1,0 +1,14 @@
+services:
+  ding:
+    build: .
+    image: ghcr.io/mart1g3/ding:latest
+    restart: unless-stopped
+    environment:
+      DISCORD_TOKEN: ${DISCORD_TOKEN:?set DISCORD_TOKEN in .env or your shell}
+      DATABASE_URL: sqlite:/data/ding.db
+      # RUST_LOG: info
+    volumes:
+      - ding-data:/data
+
+volumes:
+  ding-data:
