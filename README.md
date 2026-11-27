@@ -1,5 +1,7 @@
 # ding
 
+`ding` is a discord bot that periodically reads the WoW Armory and notifies a discord channel when a character has leveled up. Currently only supports WoW: Forever characters.
+
 ## Inviting the bot
 
 Replace `<APP_ID>` with your application's client ID (Developer Portal → General Information):
