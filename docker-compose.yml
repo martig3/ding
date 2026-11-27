@@ -1,8 +1,7 @@
 services:
   ding:
     build: .
-    # Or use the published image instead of building locally:
-    # image: ghcr.io/<owner>/ding:latest
+    image: ghcr.io/mart1g3/ding:latest
     restart: unless-stopped
     environment:
       DISCORD_TOKEN: ${DISCORD_TOKEN:?set DISCORD_TOKEN in .env or your shell}
