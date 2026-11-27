@@ -1,7 +1,7 @@
 services:
   ding:
     build: .
-    image: ghcr.io/mart1g3/ding:latest
+    image: ghcr.io/martig3/ding:latest
     restart: unless-stopped
     environment:
       DISCORD_TOKEN: ${DISCORD_TOKEN:?set DISCORD_TOKEN in .env or your shell}
