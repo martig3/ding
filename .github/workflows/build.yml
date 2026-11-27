@@ -1,0 +1,40 @@
+name: build
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  SQLX_OFFLINE: "true"
+  CARGO_TERM_COLOR: always
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Ensure rustls only (no OpenSSL)
+        run: |
+          if cargo tree --locked -i openssl-sys 2>/dev/null; then exit 1; fi
+          if cargo tree --locked -i native-tls 2>/dev/null; then exit 1; fi
+      - run: cargo build --locked
+      - run: cargo test --locked
+
+  docker:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: false
+          cache-from: type=gha,scope=docker
+          cache-to: type=gha,scope=docker,mode=max
